@@ -65,21 +65,44 @@ class Head(nn.Module):
         # tril: (block_size, block_size) -> (T, T), when T <= block_size
         wei = wei.masked_fill(self.tril[:T,:T] == 0, float('-inf'))
         wei = F.softmax(wei, dim=-1) # (B, T, T)
-        wei = self.dropout(wei) # Dropout 20% after softmax
+        wei = self.dropout(wei) # 20% attention dropout after softmax
         v = self.value(x) # v: (B, T, head_size)
         self.out = wei @ v # out: (B, T, head_size)
         return self.out
 
 
-# V2 Biagram model - with Single Head Attention
+# Multi head attention
+class MultiHeadAttention(nn.Module):
+
+    def __init__(self, num_heads, head_size, block_size, dropout = 0.2):
+        super().__init__()
+        # n_embd = num_heads * head_size
+        n_embd = num_heads * head_size
+        self.heads = nn.ModuleList([
+            Head(head_size, n_embd, block_size, dropout) for _ in range(num_heads)
+            ])
+        self.dropout = nn.Dropout(dropout)
+        # linear projection after concat all the heads
+        self.proj = nn.Linear(n_embd, n_embd)
+
+    def forward(self, x):
+        # head(x): (B, T, head_size)
+        # out: (B, T, head_size * num_heads), cat at last dim
+        out = torch.cat([head(x) for head in self.heads], dim=-1)
+        # projection channels dropout
+        out = self.dropout(self.proj(out)) # out: (B, T, n_embd)
+        return out
+
+
+# V2 Biagram model - with Multi Head Attention
 class BigramLanguageModelV2(nn.Module):
 
     def __init__(self, vocab_size, n_embd, block_size):
         super().__init__()
         self.token_embedding_table = nn.Embedding(vocab_size, n_embd)
         self.position_embedding_table = nn.Embedding(block_size, n_embd)
-        # keep head_size = n_embd
-        self.sa_head = Head(n_embd, n_embd, block_size)
+        # head_size = n_embd / num_heads
+        self.sa_heads = MultiHeadAttention(num_heads=4, head_size=n_embd / 4, block_size=block_size)
         self.lm_head = nn.Linear(n_embd, vocab_size)
         self.block_size = block_size
 
@@ -91,7 +114,7 @@ class BigramLanguageModelV2(nn.Module):
         # embedding for each position, same for all the batches
         pos_emb = self.position_embedding_table(torch.arange(T)) # (T, n_embd)
         x = token_emb + pos_emb # x: (B, T, n_embd)
-        x = self.sa_head(x) # x: (B, T, n_embd), head_size=n_embd
+        x = self.sa_heads(x) # x: (B, T, n_embd)
         logits = self.lm_head(x) # logits: (B, T, vocab_size)
 
         if targets == None:
