@@ -68,6 +68,24 @@ class BatchNorm1d(Module):
     def parameters(self):
         return [self.gamma, self.beta]
 
+class LayerNorm(Module):
+    def __init__(self, dim: int, eps: float = 1e-5):
+        super().__init__()
+        self.gamma = torch.ones(dim)
+        self.beta = torch.zeros(dim)
+        self.eps = eps
+
+    def forward(self, x: torch.Tensor):
+        mean = x.mean(dim=1, keepdim=True)
+        var = x.var(dim=1, keepdim=True, unbiased=False)
+        x_norm = (x - mean) / (var + self.eps)
+        self.out = self.gamma * x_norm + self.beta
+        return self.out
+
+    def parameters(self):
+        return [self.gamma, self.beta]
+
+
 class Tanh(Module):
     def __init__(self):
         self.out = None
